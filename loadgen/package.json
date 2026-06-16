@@ -1,0 +1,12 @@
+{
+  "name": "loadgen",
+  "version": "1.0.0",
+  "description": "Continuously exercises realistic citizen flows against the gateway to form a Dynatrace baseline. Rate is controlled from /control via a Postgres config row.",
+  "main": "loadgen.js",
+  "scripts": {
+    "start": "node loadgen.js"
+  },
+  "dependencies": {
+    "pg": "^8.12.0"
+  }
+}

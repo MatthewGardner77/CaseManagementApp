@@ -1,0 +1,14 @@
+{
+  "name": "document-service",
+  "version": "1.0.0",
+  "description": "Simulates document intake/processing for a case. CPU-bound work lives here.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "morgan": "^1.10.0",
+    "pg": "^8.12.0"
+  }
+}

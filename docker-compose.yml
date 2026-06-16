@@ -1,0 +1,125 @@
+# ============================================================================
+# Citizen Services Case Management System
+# ----------------------------------------------------------------------------
+# A multi-service demo modeled on Dynatrace EasyTrade, adapted to a federal
+# case-management domain. Put OneAgent (full-stack) on the host; it auto-
+# instruments every container below plus Postgres, giving Dynatrace a real
+# service map: gateway -> case-service -> postgres, gateway -> document-service.
+#
+#   docker compose up --build
+#   Citizen app:    http://localhost:8080
+#   Operator panel: http://localhost:8080/control   (not linked from the app)
+# ============================================================================
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: csa-postgres
+    environment:
+      POSTGRES_USER: casemgmt
+      POSTGRES_PASSWORD: casemgmt
+      POSTGRES_DB: casemgmt
+    # Schema + 300-case seed run automatically on first init (empty volume).
+    volumes:
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U casemgmt -d casemgmt"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  case-service:
+    build: ./case-service
+    container_name: csa-case-service
+    environment:
+      PORT: "3001"
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: casemgmt
+      PGPASSWORD: casemgmt
+      PGDATABASE: casemgmt
+      FLAG_TTL_MS: "2000"
+    # Exposed for convenience/debugging; the citizen app only talks to gateway.
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
+  document-service:
+    build: ./document-service
+    container_name: csa-document-service
+    environment:
+      PORT: "3002"
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: casemgmt
+      PGPASSWORD: casemgmt
+      PGDATABASE: casemgmt
+      FLAG_TTL_MS: "2000"
+    ports:
+      - "3002:3002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3002/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
+  gateway:
+    build: ./gateway
+    container_name: csa-gateway
+    environment:
+      PORT: "8080"
+      CASE_SERVICE_URL: http://case-service:3001
+      DOCUMENT_SERVICE_URL: http://document-service:3002
+    ports:
+      - "8080:8080"
+    depends_on:
+      case-service:
+        condition: service_healthy
+      document-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
+  loadgen:
+    build: ./loadgen
+    container_name: csa-loadgen
+    environment:
+      GATEWAY_URL: http://gateway:8080
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: casemgmt
+      PGPASSWORD: casemgmt
+      PGDATABASE: casemgmt
+      SEEDED_CASES: "300"
+    depends_on:
+      gateway:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:

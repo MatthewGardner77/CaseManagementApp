@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Scenario Control · Case Management Demo</title>
+  <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;600;700&family=Roboto+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0b1220; --panel: #131c2e; --panel-2: #1b2740;
+      --line: #26344f; --text: #e6edf6; --muted: #93a1bd;
+      --accent: #38bdf8; --on: #34d399; --off: #475569;
+      --warn: #fbbf24; --danger: #f87171;
+      --mono: 'Roboto Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+      --sans: 'Public Sans', system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); line-height: 1.5; }
+    a { color: var(--accent); }
+    .wrap { max-width: 1000px; margin: 0 auto; padding: 1.5rem; }
+    header.bar { border-bottom: 1px solid var(--line); }
+    .bar__inner { max-width: 1000px; margin: 0 auto; padding: 1rem 1.5rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+    .brand { font-weight: 700; letter-spacing: .02em; }
+    .brand small { display: block; color: var(--muted); font-weight: 400; font-size: .8rem; }
+    .pill { font-family: var(--mono); font-size: .75rem; padding: .2rem .6rem; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+
+    h1 { font-size: 1.5rem; margin: 1.5rem 0 .25rem; }
+    .lead { color: var(--muted); margin: 0 0 1.5rem; max-width: 70ch; }
+
+    .active-banner {
+      border: 1px solid var(--line); border-left: 4px solid var(--off);
+      background: var(--panel); border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1.75rem;
+    }
+    .active-banner.is-active { border-left-color: var(--warn); }
+    .active-banner h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 .5rem; }
+    .active-list { display: flex; flex-wrap: wrap; gap: .5rem; }
+    .chip { font-family: var(--mono); font-size: .8rem; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: .3rem .6rem; }
+    .chip b { color: var(--warn); }
+    .nominal { color: var(--on); font-family: var(--mono); font-size: .85rem; }
+
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
+    @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 1.25rem 1.35rem; }
+    .card.headline { border-color: #3b4a6b; box-shadow: 0 0 0 1px rgba(56,189,248,.15) inset; }
+    .card__head { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; }
+    .card__title { font-size: 1.05rem; margin: 0; }
+    .card__svc { font-family: var(--mono); font-size: .72rem; color: var(--accent); }
+    .card__desc { color: var(--muted); font-size: .88rem; margin: .5rem 0 1rem; }
+    .tagline { display: inline-block; font-family: var(--mono); font-size: .68rem; color: var(--bg); background: var(--accent); padding: .1rem .45rem; border-radius: 4px; margin-bottom: .5rem; }
+
+    /* Toggle switch */
+    .switch { position: relative; display: inline-flex; align-items: center; gap: .6rem; cursor: pointer; }
+    .switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+    .switch__track { width: 46px; height: 26px; background: var(--off); border-radius: 999px; transition: background .15s ease; position: relative; flex: none; }
+    .switch__thumb { position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; background: #fff; border-radius: 50%; transition: transform .15s ease; }
+    .switch input:checked + .switch__track { background: var(--on); }
+    .switch input:checked + .switch__track .switch__thumb { transform: translateX(20px); }
+    .switch input:focus-visible + .switch__track { outline: 3px solid var(--accent); outline-offset: 2px; }
+    .switch__label { font-weight: 600; }
+
+    .slider-row { margin-top: 1.1rem; }
+    .slider-row label { display: flex; justify-content: space-between; font-size: .85rem; color: var(--muted); margin-bottom: .4rem; }
+    .slider-row output { font-family: var(--mono); color: var(--text); font-weight: 600; }
+    input[type=range] { width: 100%; accent-color: var(--accent); }
+
+    .loadgen { margin-top: 1.75rem; }
+    .lg-row { display: flex; align-items: center; gap: 2rem; flex-wrap: wrap; }
+    .status-dot { width: .7rem; height: .7rem; border-radius: 50%; display: inline-block; background: var(--off); }
+    .status-dot.on { background: var(--on); }
+
+    .api-note { margin-top: 2rem; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 1.25rem 1.35rem; }
+    .api-note h2 { font-size: .95rem; margin: 0 0 .75rem; }
+    pre { background: #0a101d; border: 1px solid var(--line); border-radius: 6px; padding: .85rem 1rem; overflow-x: auto; font-family: var(--mono); font-size: .8rem; color: #cbd5e1; }
+    .footnote { color: var(--muted); font-size: .82rem; margin-top: 1.5rem; }
+    .toasts { position: fixed; right: 1rem; bottom: 1rem; display: flex; flex-direction: column; gap: .5rem; }
+    .toasts .t { background: var(--panel-2); border: 1px solid var(--line); border-left: 4px solid var(--accent); padding: .6rem .9rem; border-radius: 6px; font-size: .85rem; }
+    .toasts .t.err { border-left-color: var(--danger); }
+  </style>
+</head>
+<body>
+  <header class="bar">
+    <div class="bar__inner">
+      <div class="brand">Scenario Control Console<small>Citizen Services Case Management — observability demo</small></div>
+      <span class="pill" id="conn-pill">connecting…</span>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <h1>Problem-scenario engine</h1>
+    <p class="lead">Toggle sustained failure scenarios and dial their intensity. Each runs until you turn it off and propagates through the service map. Allow active baseline traffic for a few minutes before flipping a scenario, then keep it on ~15–20 minutes so Davis AI can establish a baseline and surface the problem.</p>
+
+    <div class="active-banner" id="active-banner" aria-live="polite">
+      <h2>Currently active</h2>
+      <div id="active-list"><span class="nominal">● All systems nominal — no scenarios active.</span></div>
+    </div>
+
+    <div class="grid" id="scenario-grid"><!-- scenario cards injected --></div>
+
+    <section class="card loadgen" aria-labelledby="lg-title">
+      <div class="card__head">
+        <h2 class="card__title" id="lg-title">Load generator</h2>
+        <span class="card__svc">loadgen → gateway</span>
+      </div>
+      <p class="card__desc">Continuous baseline traffic across browse, open, search, create and status-change flows. Davis needs an active baseline before it will raise a problem.</p>
+      <div class="lg-row">
+        <label class="switch">
+          <input type="checkbox" id="lg-running" />
+          <span class="switch__track"><span class="switch__thumb"></span></span>
+          <span class="switch__label">Traffic <span id="lg-state">—</span></span>
+        </label>
+        <div style="flex:1; min-width:220px;">
+          <div class="slider-row" style="margin-top:0;">
+            <label for="lg-rps">Request rate <output id="lg-rps-out">—</output></label>
+            <input type="range" id="lg-rps" min="0" max="50" step="1" value="6" />
+          </div>
+        </div>
+        <span><span class="status-dot" id="lg-dot"></span> <span id="lg-summary" style="color:var(--muted);font-family:var(--mono);font-size:.8rem;">—</span></span>
+      </div>
+    </section>
+
+    <section class="api-note">
+      <h2>Flip scenarios from the command line</h2>
+      <p style="color:var(--muted);margin:0 0 .75rem;font-size:.88rem;">The same controls are exposed as a REST API on the gateway:</p>
+      <pre id="curl-examples"># Turn on the headline RCA scenario at 1200 ms injected latency
+curl -X PUT http://localhost:8080/api/scenarios/BACKEND_SLOWDOWN \
+  -H 'Content-Type: application/json' -d '{"enabled":true,"intensity":1200}'
+
+# Force 40% of case-service DB queries to fail
+curl -X PUT http://localhost:8080/api/scenarios/DB_FAILURE_RATE \
+  -H 'Content-Type: application/json' -d '{"enabled":true,"intensity":40}'
+
+# Burn CPU in document-service: 400 ms busy-loop per request
+curl -X PUT http://localhost:8080/api/scenarios/HIGH_CPU \
+  -H 'Content-Type: application/json' -d '{"enabled":true,"intensity":400}'
+
+# Turn everything off
+for s in HIGH_CPU DB_FAILURE_RATE BACKEND_SLOWDOWN; do \
+  curl -X PUT http://localhost:8080/api/scenarios/$s \
+  -H 'Content-Type: application/json' -d '{"enabled":false}'; done
+
+# Drive the load generator (10 req/s)
+curl -X PUT http://localhost:8080/api/loadgen \
+  -H 'Content-Type: application/json' -d '{"running":true,"rps":10}'</pre>
+    </section>
+
+    <p class="footnote">This console is intentionally not linked from the citizen application. Reach it directly at <code>/control</code>.</p>
+  </div>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+  <script src="/js/control.js"></script>
+</body>
+</html>

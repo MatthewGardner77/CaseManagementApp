@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Case Management System | U.S. Citizen Services Administration</title>
+  <meta name="description" content="Citizen Services Case Management System — review, triage, and adjudicate citizen cases." />
+
+  <!-- ===================================================================== -->
+  <!-- DYNATRACE RUM: paste your Real User Monitoring snippet on the line     -->
+  <!-- below to correlate browser user actions with backend distributed       -->
+  <!-- traces. (Dynatrace > Application > Setup > Manual insertion.)           -->
+  <!--                                                                         -->
+  <!-- <script type="text/javascript" src="PASTE_YOUR_RUM_JS_AGENT_URL"></script> -->
+  <!-- ===================================================================== -->
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <a class="usa-skipnav" href="#main-content">Skip to main content</a>
+
+  <!-- Official government banner ----------------------------------------- -->
+  <section class="usa-banner" aria-label="Official website of the United States government">
+    <div class="container usa-banner__inner">
+      <span class="usa-banner__flag" aria-hidden="true">
+        <svg viewBox="0 0 24 16" width="24" height="16" focusable="false" role="img" aria-label="U.S. flag">
+          <rect width="24" height="16" fill="#b22234"/>
+          <rect y="1.23" width="24" height="1.23" fill="#fff"/>
+          <rect y="3.69" width="24" height="1.23" fill="#fff"/>
+          <rect y="6.15" width="24" height="1.23" fill="#fff"/>
+          <rect y="8.61" width="24" height="1.23" fill="#fff"/>
+          <rect y="11.07" width="24" height="1.23" fill="#fff"/>
+          <rect y="13.53" width="24" height="1.23" fill="#fff"/>
+          <rect width="10" height="8.61" fill="#3c3b6e"/>
+        </svg>
+      </span>
+      <p class="usa-banner__header-text">An official website of the United States government</p>
+      <button type="button" class="usa-banner__button" aria-expanded="false" aria-controls="gov-banner-content">
+        Here's how you know
+      </button>
+    </div>
+    <div class="usa-banner__content container" id="gov-banner-content" hidden>
+      <div class="usa-banner__guidance">
+        <span class="usa-banner__icon" aria-hidden="true">🏛️</span>
+        <p><strong>Official websites use .gov</strong><br />
+          A <strong>.gov</strong> website belongs to an official government organization in the United States.</p>
+      </div>
+      <div class="usa-banner__guidance">
+        <span class="usa-banner__icon" aria-hidden="true">🔒</span>
+        <p><strong>Secure .gov websites use HTTPS</strong><br />
+          A lock or https:// means you've safely connected to the .gov website. Share sensitive information only on official, secure websites.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Agency masthead ----------------------------------------------------- -->
+  <header class="masthead" role="banner">
+    <div class="container masthead__inner">
+      <a class="masthead__brand" href="#" data-view="dashboard">
+        <span class="masthead__seal" aria-hidden="true">
+          <svg viewBox="0 0 48 48" width="48" height="48" focusable="false">
+            <circle cx="24" cy="24" r="23" fill="#162e51" stroke="#ffbe2e" stroke-width="2"/>
+            <circle cx="24" cy="24" r="15" fill="none" stroke="#a9aeb1" stroke-width="1"/>
+            <text x="24" y="29" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="700" font-family="Public Sans, sans-serif">CSA</text>
+          </svg>
+        </span>
+        <span class="masthead__titles">
+          <span class="masthead__agency">U.S. Citizen Services Administration</span>
+          <span class="masthead__system">Case Management System</span>
+        </span>
+      </a>
+
+      <form class="masthead__search" role="search" aria-label="Search cases">
+        <label class="usa-sr-only" for="masthead-search">Search by case number or citizen name</label>
+        <input id="masthead-search" type="search" name="q" placeholder="Search case # or name" autocomplete="off" />
+        <button type="submit" class="btn btn--search" aria-label="Search">
+          <span aria-hidden="true">Search</span>
+        </button>
+      </form>
+    </div>
+
+    <nav class="primary-nav" aria-label="Primary">
+      <div class="container">
+        <ul class="primary-nav__list">
+          <li><a href="#" class="primary-nav__link" data-view="dashboard">Dashboard</a></li>
+          <li><a href="#" class="primary-nav__link" data-view="queue">Case Queue</a></li>
+        </ul>
+        <button type="button" class="btn btn--accent" id="new-case-btn">New case</button>
+      </div>
+    </nav>
+  </header>
+
+  <!-- Main content -------------------------------------------------------- -->
+  <main id="main-content" tabindex="-1">
+    <div class="container">
+      <div id="global-alert" class="usa-alert usa-alert--error" role="alert" hidden>
+        <div class="usa-alert__body">
+          <h2 class="usa-alert__heading">We're having trouble completing that request</h2>
+          <p class="usa-alert__text" id="global-alert-text">Please try again. If the problem continues, contact your system administrator.</p>
+        </div>
+      </div>
+
+      <!-- DASHBOARD VIEW -->
+      <section id="view-dashboard" class="view" aria-labelledby="dashboard-heading">
+        <div class="page-header">
+          <h1 id="dashboard-heading">Operations Dashboard</h1>
+          <p class="page-header__lead">Caseload at a glance across all intake types. Figures refresh on load.</p>
+        </div>
+
+        <h2 class="section-label">Key indicators</h2>
+        <div class="stat-grid" id="stat-grid" aria-busy="true">
+          <!-- stat cards injected here -->
+        </div>
+
+        <div class="dashboard-cols">
+          <section class="panel" aria-labelledby="by-status-heading">
+            <h2 id="by-status-heading" class="panel__title">Cases by status</h2>
+            <ul class="bar-list" id="by-status-list"></ul>
+          </section>
+          <section class="panel" aria-labelledby="by-type-heading">
+            <h2 id="by-type-heading" class="panel__title">Cases by type</h2>
+            <ul class="bar-list" id="by-type-list"></ul>
+          </section>
+        </div>
+      </section>
+
+      <!-- QUEUE VIEW -->
+      <section id="view-queue" class="view" aria-labelledby="queue-heading" hidden>
+        <div class="page-header">
+          <h1 id="queue-heading">Case Queue</h1>
+          <p class="page-header__lead">Filter and triage active cases. Highest priority and nearest SLA appear first.</p>
+        </div>
+
+        <form class="filters" id="filter-form" aria-label="Filter cases">
+          <fieldset>
+            <legend class="usa-sr-only">Filter the case queue</legend>
+            <div class="filters__row">
+              <div class="field">
+                <label for="f-q">Search</label>
+                <input type="search" id="f-q" name="q" placeholder="Case # or citizen name" />
+              </div>
+              <div class="field">
+                <label for="f-status">Status</label>
+                <select id="f-status" name="status">
+                  <option value="">All statuses</option>
+                  <option>New</option>
+                  <option>In Review</option>
+                  <option>Pending Info</option>
+                  <option>Approved</option>
+                  <option>Denied</option>
+                  <option>Closed</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="f-type">Type</label>
+                <select id="f-type" name="type">
+                  <option value="">All types</option>
+                  <option>Benefits Claim</option>
+                  <option>FOIA Request</option>
+                  <option>Permit Application</option>
+                  <option>Appeal</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="f-priority">Priority</label>
+                <select id="f-priority" name="priority">
+                  <option value="">All priorities</option>
+                  <option>Urgent</option>
+                  <option>High</option>
+                  <option>Medium</option>
+                  <option>Low</option>
+                </select>
+              </div>
+              <div class="field field--check">
+                <input type="checkbox" id="f-sla" name="slaBreached" />
+                <label for="f-sla">Past SLA only</label>
+              </div>
+              <div class="field field--actions">
+                <button type="submit" class="btn btn--primary">Apply filters</button>
+                <button type="button" class="btn btn--outline" id="filter-reset">Reset</button>
+              </div>
+            </div>
+          </fieldset>
+        </form>
+
+        <div class="table-meta" id="queue-meta" aria-live="polite"></div>
+
+        <div class="table-wrap">
+          <table class="data-table" aria-describedby="queue-meta">
+            <caption class="usa-sr-only">List of cases matching the current filters</caption>
+            <thead>
+              <tr>
+                <th scope="col">Case #</th>
+                <th scope="col">Citizen</th>
+                <th scope="col">Type</th>
+                <th scope="col">Status</th>
+                <th scope="col">Priority</th>
+                <th scope="col">Officer</th>
+                <th scope="col">SLA due</th>
+                <th scope="col"><span class="usa-sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody id="queue-body" aria-busy="true"></tbody>
+          </table>
+        </div>
+
+        <nav class="pagination" id="pagination" aria-label="Case queue pages"></nav>
+      </section>
+
+      <!-- CASE DETAIL VIEW -->
+      <section id="view-case" class="view" aria-labelledby="case-heading" hidden>
+        <a href="#" class="back-link" id="back-to-queue">&larr; Back to case queue</a>
+        <div id="case-detail" aria-busy="true"><!-- injected --></div>
+      </section>
+    </div>
+  </main>
+
+  <!-- Create-case dialog (native, keyboard accessible) -------------------- -->
+  <dialog id="create-dialog" class="dialog" aria-labelledby="create-title">
+    <form method="dialog" id="create-form" class="dialog__form">
+      <h2 id="create-title">Create a new case</h2>
+      <p class="dialog__lead">Intake a citizen case. The attachment is validated by the document service before the case is filed.</p>
+
+      <div class="field">
+        <label for="c-name">Citizen name <span class="req" aria-hidden="true">*</span></label>
+        <input type="text" id="c-name" name="citizenName" required autocomplete="name" />
+      </div>
+      <div class="field">
+        <label for="c-type">Case type <span class="req" aria-hidden="true">*</span></label>
+        <select id="c-type" name="caseType" required>
+          <option value="">- Select a type -</option>
+          <option>Benefits Claim</option>
+          <option>FOIA Request</option>
+          <option>Permit Application</option>
+          <option>Appeal</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="c-priority">Priority</label>
+        <select id="c-priority" name="priority">
+          <option>Low</option>
+          <option selected>Medium</option>
+          <option>High</option>
+          <option>Urgent</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="c-file">Attachment file name</label>
+        <input type="text" id="c-file" name="fileName" value="application.pdf" />
+      </div>
+
+      <div class="dialog__actions">
+        <button type="button" class="btn btn--outline" id="create-cancel">Cancel</button>
+        <button type="submit" class="btn btn--primary" id="create-submit">File case</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Toast region -->
+  <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- Footer / identifier ------------------------------------------------- -->
+  <footer class="identifier" role="contentinfo">
+    <div class="container">
+      <p class="identifier__agency">An official application of the U.S. Citizen Services Administration</p>
+      <ul class="identifier__links">
+        <li><a href="#">Accessibility (Section 508)</a></li>
+        <li><a href="#">Privacy policy</a></li>
+        <li><a href="#">FOIA</a></li>
+        <li><a href="#">No FEAR Act</a></li>
+      </ul>
+      <p class="identifier__note">Demonstration system. The U.S. Citizen Services Administration is a fictional agency used for observability demos.</p>
+    </div>
+  </footer>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>

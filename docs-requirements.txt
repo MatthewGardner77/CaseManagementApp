@@ -1,0 +1,5 @@
+# Build the deployment guide locally:
+#   python -m venv .venv && source .venv/bin/activate   (Windows: .venv\Scripts\activate)
+#   pip install -r docs-requirements.txt
+#   mkdocs serve
+mkdocs-material>=9.5

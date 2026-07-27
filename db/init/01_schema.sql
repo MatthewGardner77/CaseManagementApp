@@ -26,6 +26,10 @@ CREATE INDEX idx_cases_priority ON cases (priority);
 CREATE INDEX idx_cases_sla      ON cases (sla_due_date);
 CREATE INDEX idx_cases_created  ON cases (created_at);
 
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE INDEX idx_cases_citizen_name_trgm ON cases USING gin (citizen_name gin_trgm_ops);
+CREATE INDEX idx_cases_case_number_trgm  ON cases USING gin (case_number  gin_trgm_ops);
+
 CREATE TABLE case_notes (
     id         SERIAL PRIMARY KEY,
     case_id    INTEGER     NOT NULL REFERENCES cases (id) ON DELETE CASCADE,
@@ -64,9 +68,9 @@ INSERT INTO scenario_flags (name, enabled, intensity) VALUES
 CREATE TABLE loadgen_config (
     id         INTEGER     PRIMARY KEY DEFAULT 1,
     running    BOOLEAN     NOT NULL DEFAULT true,
-    rps        INTEGER     NOT NULL DEFAULT 6,
+    rps        INTEGER     NOT NULL DEFAULT 3,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT loadgen_config_single_row CHECK (id = 1)
 );
 
-INSERT INTO loadgen_config (id, running, rps) VALUES (1, true, 6);
+INSERT INTO loadgen_config (id, running, rps) VALUES (1, true, 3);

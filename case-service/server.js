@@ -102,28 +102,24 @@ app.get('/cases/stats', async (_req, res, next) => {
   try {
     await maybeSlowdown();
 
-    const byStatus = await dbQuery(
-      'SELECT status, count(*)::int AS count FROM cases GROUP BY status'
-    );
-    const byType = await dbQuery(
-      'SELECT case_type, count(*)::int AS count FROM cases GROUP BY case_type'
-    );
-    const byPriority = await dbQuery(
-      'SELECT priority, count(*)::int AS count FROM cases GROUP BY priority'
-    );
-    const totals = await dbQuery(`
-      SELECT
-        count(*)::int AS total,
-        count(*) FILTER (WHERE status NOT IN ('Approved','Denied','Closed'))::int AS open,
-        count(*) FILTER (
-          WHERE sla_due_date < now()
-            AND status NOT IN ('Approved','Denied','Closed')
-        )::int AS sla_breaches,
-        round(
-          EXTRACT(EPOCH FROM avg(closed_at - created_at)) / 86400.0, 1
-        ) AS avg_days_to_close
-      FROM cases
-    `);
+    const [byStatus, byType, byPriority, totals] = await Promise.all([
+      dbQuery('SELECT status, count(*)::int AS count FROM cases GROUP BY status'),
+      dbQuery('SELECT case_type, count(*)::int AS count FROM cases GROUP BY case_type'),
+      dbQuery('SELECT priority, count(*)::int AS count FROM cases GROUP BY priority'),
+      dbQuery(`
+        SELECT
+          count(*)::int AS total,
+          count(*) FILTER (WHERE status NOT IN ('Approved','Denied','Closed'))::int AS open,
+          count(*) FILTER (
+            WHERE sla_due_date < now()
+              AND status NOT IN ('Approved','Denied','Closed')
+          )::int AS sla_breaches,
+          round(
+            EXTRACT(EPOCH FROM avg(closed_at - created_at)) / 86400.0, 1
+          ) AS avg_days_to_close
+        FROM cases
+      `),
+    ]);
 
     const statusCounts = {};
     for (const s of STATUSES) statusCounts[s] = 0;
@@ -209,19 +205,20 @@ app.get('/cases/:id', async (req, res, next) => {
   try {
     await maybeSlowdown();
 
-    const caseRes = await dbQuery(
-      `SELECT id, case_number, citizen_name, case_type, status, priority,
-              assigned_officer, sla_due_date, created_at, updated_at, closed_at,
-              (sla_due_date < now() AND status NOT IN ('Approved','Denied','Closed')) AS sla_breached
-         FROM cases WHERE id = $1`,
-      [req.params.id]
-    );
+    const [caseRes, notesRes] = await Promise.all([
+      dbQuery(
+        `SELECT id, case_number, citizen_name, case_type, status, priority,
+                assigned_officer, sla_due_date, created_at, updated_at, closed_at,
+                (sla_due_date < now() AND status NOT IN ('Approved','Denied','Closed')) AS sla_breached
+           FROM cases WHERE id = $1`,
+        [req.params.id]
+      ),
+      dbQuery(
+        'SELECT id, author, body, created_at FROM case_notes WHERE case_id = $1 ORDER BY created_at ASC',
+        [req.params.id]
+      ),
+    ]);
     if (caseRes.rowCount === 0) return res.status(404).json({ error: 'Case not found' });
-
-    const notesRes = await dbQuery(
-      'SELECT id, author, body, created_at FROM case_notes WHERE case_id = $1 ORDER BY created_at ASC',
-      [req.params.id]
-    );
 
     const row = caseRes.rows[0];
     row.notes = notesRes.rows;

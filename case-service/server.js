@@ -27,7 +27,12 @@ const pool = new Pool({
   user: process.env.PGUSER || 'casemgmt',
   password: process.env.PGPASSWORD || 'casemgmt',
   database: process.env.PGDATABASE || 'casemgmt',
-  max: parseInt(process.env.PG_POOL_MAX || '10', 10)
+  // /cases/stats holds 4 connections at once (Promise.all) and /cases/:id holds 2,
+  // so a pool of 10 was exhausted by ~2 concurrent dashboard requests.
+  max: parseInt(process.env.PG_POOL_MAX || '30', 10),
+  // pg defaults this to 0, meaning a checkout waits forever. That hid pool
+  // starvation as ~90s response times instead of surfacing it as an error.
+  connectionTimeoutMillis: parseInt(process.env.PG_CONN_TIMEOUT_MS || '5000', 10)
 });
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

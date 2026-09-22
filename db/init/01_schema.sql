@@ -30,6 +30,23 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE INDEX idx_cases_citizen_name_trgm ON cases USING gin (citizen_name gin_trgm_ops);
 CREATE INDEX idx_cases_case_number_trgm  ON cases USING gin (case_number  gin_trgm_ops);
 
+-- Expression indexes matching the queue's ORDER BY exactly. Without these,
+-- every /cases listing sorts the entire matching set before applying LIMIT,
+-- because no plain column index can satisfy the CASE expression. With them
+-- Postgres walks the index in order and stops at LIMIT.
+CREATE INDEX idx_cases_priority_rank_sla ON cases (
+    (CASE priority WHEN 'Urgent' THEN 0 WHEN 'High' THEN 1 WHEN 'Medium' THEN 2 ELSE 3 END),
+    sla_due_date ASC NULLS LAST
+);
+
+-- Same sort, prefixed by status: covers the filtered queue, which is the most
+-- common browse path (~60% of listing requests carry a status filter).
+CREATE INDEX idx_cases_status_priority_rank_sla ON cases (
+    status,
+    (CASE priority WHEN 'Urgent' THEN 0 WHEN 'High' THEN 1 WHEN 'Medium' THEN 2 ELSE 3 END),
+    sla_due_date ASC NULLS LAST
+);
+
 CREATE TABLE case_notes (
     id         SERIAL PRIMARY KEY,
     case_id    INTEGER     NOT NULL REFERENCES cases (id) ON DELETE CASCADE,

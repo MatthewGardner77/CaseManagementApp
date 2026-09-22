@@ -27,9 +27,11 @@ const pool = new Pool({
   user: process.env.PGUSER || 'casemgmt',
   password: process.env.PGPASSWORD || 'casemgmt',
   database: process.env.PGDATABASE || 'casemgmt',
-  // /cases/stats holds 4 connections at once (Promise.all) and /cases/:id holds 2,
-  // so a pool of 10 was exhausted by ~2 concurrent dashboard requests.
-  max: parseInt(process.env.PG_POOL_MAX || '30', 10),
+  // Deliberately modest: the pool doubles as a concurrency throttle on Postgres.
+  // Raising it lets more full-table scans run at once, which RAISES database CPU.
+  // Cut per-query cost first (stats cache below, sort indexes in the schema),
+  // then raise this only if latency still needs headroom.
+  max: parseInt(process.env.PG_POOL_MAX || '10', 10),
   // pg defaults this to 0, meaning a checkout waits forever. That hid pool
   // starvation as ~90s response times instead of surfacing it as an error.
   connectionTimeoutMillis: parseInt(process.env.PG_CONN_TIMEOUT_MS || '5000', 10)
@@ -103,50 +105,85 @@ app.get('/health', async (_req, res) => {
 });
 
 // --- Dashboard aggregations ------------------------------------------------
+// These previously ran as four separate queries, each a full sequential scan of
+// cases. Dashboard is ~14% of the load mix, so that was the single largest
+// source of Postgres CPU. Now: one scan via GROUPING SETS, behind a TTL cache.
+const STATS_TTL_MS = parseInt(process.env.STATS_TTL_MS || '30000', 10);
+let statsCache = { at: 0, data: null, inflight: null };
+
+async function computeStats() {
+  // One pass yields all three breakdowns plus the grand totals. Rows from the
+  // () grouping set carry NULL in every dimension column; the dimension columns
+  // are NOT NULL in the schema, so that check is unambiguous.
+  const { rows } = await dbQuery(`
+    SELECT
+      status,
+      case_type,
+      priority,
+      count(*)::int AS count,
+      count(*) FILTER (WHERE status NOT IN ('Approved','Denied','Closed'))::int AS open,
+      count(*) FILTER (
+        WHERE sla_due_date < now()
+          AND status NOT IN ('Approved','Denied','Closed')
+      )::int AS sla_breaches,
+      round(
+        EXTRACT(EPOCH FROM avg(closed_at - created_at)) / 86400.0, 1
+      ) AS avg_days_to_close
+    FROM cases
+    GROUP BY GROUPING SETS ((status), (case_type), (priority), ())
+  `);
+
+  const statusCounts = {};
+  for (const s of STATUSES) statusCounts[s] = 0;
+  const typeCounts = {};
+  for (const t of CASE_TYPES) typeCounts[t] = 0;
+  const priorityCounts = {};
+  for (const p of PRIORITIES) priorityCounts[p] = 0;
+
+  let grand = { count: 0, open: 0, sla_breaches: 0, avg_days_to_close: null };
+  for (const r of rows) {
+    if (r.status !== null) statusCounts[r.status] = r.count;
+    else if (r.case_type !== null) typeCounts[r.case_type] = r.count;
+    else if (r.priority !== null) priorityCounts[r.priority] = r.count;
+    else grand = r;
+  }
+
+  return {
+    total: grand.count,
+    open: grand.open,
+    slaBreaches: grand.sla_breaches,
+    avgDaysToClose: grand.avg_days_to_close,
+    byStatus: statusCounts,
+    byType: typeCounts,
+    byPriority: priorityCounts
+  };
+}
+
+// Collapses concurrent misses onto a single round trip, so a cold cache under
+// load cannot stampede the table with parallel scans.
+function getStats() {
+  const now = Date.now();
+  if (statsCache.data && now - statsCache.at < STATS_TTL_MS) {
+    return Promise.resolve(statsCache.data);
+  }
+  if (statsCache.inflight) return statsCache.inflight;
+
+  statsCache.inflight = computeStats()
+    .then((data) => {
+      statsCache = { at: Date.now(), data, inflight: null };
+      return data;
+    })
+    .catch((err) => {
+      statsCache.inflight = null;
+      throw err;
+    });
+  return statsCache.inflight;
+}
+
 app.get('/cases/stats', async (_req, res, next) => {
   try {
     await maybeSlowdown();
-
-    const [byStatus, byType, byPriority, totals] = await Promise.all([
-      dbQuery('SELECT status, count(*)::int AS count FROM cases GROUP BY status'),
-      dbQuery('SELECT case_type, count(*)::int AS count FROM cases GROUP BY case_type'),
-      dbQuery('SELECT priority, count(*)::int AS count FROM cases GROUP BY priority'),
-      dbQuery(`
-        SELECT
-          count(*)::int AS total,
-          count(*) FILTER (WHERE status NOT IN ('Approved','Denied','Closed'))::int AS open,
-          count(*) FILTER (
-            WHERE sla_due_date < now()
-              AND status NOT IN ('Approved','Denied','Closed')
-          )::int AS sla_breaches,
-          round(
-            EXTRACT(EPOCH FROM avg(closed_at - created_at)) / 86400.0, 1
-          ) AS avg_days_to_close
-        FROM cases
-      `),
-    ]);
-
-    const statusCounts = {};
-    for (const s of STATUSES) statusCounts[s] = 0;
-    for (const r of byStatus.rows) statusCounts[r.status] = r.count;
-
-    const typeCounts = {};
-    for (const t of CASE_TYPES) typeCounts[t] = 0;
-    for (const r of byType.rows) typeCounts[r.case_type] = r.count;
-
-    const priorityCounts = {};
-    for (const p of PRIORITIES) priorityCounts[p] = 0;
-    for (const r of byPriority.rows) priorityCounts[r.priority] = r.count;
-
-    res.json({
-      total: totals.rows[0].total,
-      open: totals.rows[0].open,
-      slaBreaches: totals.rows[0].sla_breaches,
-      avgDaysToClose: totals.rows[0].avg_days_to_close,
-      byStatus: statusCounts,
-      byType: typeCounts,
-      byPriority: priorityCounts
-    });
+    res.json(await getStats());
   } catch (err) {
     next(err);
   }

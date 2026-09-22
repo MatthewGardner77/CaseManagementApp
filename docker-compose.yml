@@ -43,10 +43,11 @@ services:
       PGPASSWORD: casemgmt
       PGDATABASE: casemgmt
       FLAG_TTL_MS: "2000"
-      # Raised from the code default of 10. /cases/stats checks out 4 connections
-      # concurrently, so 10 starved the pool and queued requests indefinitely.
-      PG_POOL_MAX: "30"
+      # Pool max is left at the code default of 10 on purpose: it throttles how
+      # many concurrent queries reach Postgres. Fail fast instead of queueing.
       PG_CONN_TIMEOUT_MS: "5000"
+      # Dashboard aggregates scan the whole cases table; serve them from cache.
+      STATS_TTL_MS: "30000"
     # Exposed for convenience/debugging; the citizen app only talks to gateway.
     ports:
       - "3001:3001"

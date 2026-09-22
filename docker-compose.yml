@@ -119,6 +119,12 @@ services:
       PGPASSWORD: casemgmt
       PGDATABASE: casemgmt
       SEEDED_CASES: "300"
+      # Cases sit in New for this long before the worker population picks them
+      # up. Previously nothing aged them, so the table skewed to ~100% New.
+      STATUS_AGE_HOURS: "24"
+      # Retention sweep. Runs hourly in bounded batches; ids <= SEEDED_CASES are
+      # never reaped because openCase addresses that range directly.
+      RETENTION_DAYS: "60"
     depends_on:
       gateway:
         condition: service_healthy

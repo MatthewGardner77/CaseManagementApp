@@ -18,8 +18,26 @@
 const { Pool } = require('pg');
 
 const GATEWAY_URL = process.env.GATEWAY_URL || 'http://gateway:8080';
-const MAX_IN_FLIGHT = parseInt(process.env.MAX_IN_FLIGHT || '250', 10);
+// Concurrency cap. Kept deliberately low: the scheduler fires requests without
+// awaiting them, so if downstream slows, in-flight requests would otherwise
+// snowball and saturate the host CPU (turning a brief spike into a permanent
+// one). 25 leaves ample headroom at the default rate while bounding a runaway.
+const MAX_IN_FLIGHT = parseInt(process.env.MAX_IN_FLIGHT || '25', 10);
 const SEEDED_CASES = parseInt(process.env.SEEDED_CASES || '300', 10);
+
+// How long a case sits in New before the worker population picks it up. Without
+// this, changeStatus only ever touched the seeded range and every case created
+// since deployment stayed New forever, skewing the table to ~100% one value and
+// destroying the selectivity of every status index.
+const STATUS_AGE_HOURS = parseInt(process.env.STATUS_AGE_HOURS || '24', 10);
+
+// Retention sweep. Bounded per batch and per run so a large first pass cannot
+// hold a long lock or run away. Cases below SEEDED_CASES are never reaped, since
+// openCase and the changeStatus fallback both depend on that range existing.
+const RETENTION_DAYS = parseInt(process.env.RETENTION_DAYS || '60', 10);
+const REAP_BATCH = parseInt(process.env.REAP_BATCH || '1000', 10);
+const REAP_MAX_PER_RUN = parseInt(process.env.REAP_MAX_PER_RUN || '50000', 10);
+const REAP_INTERVAL_MS = parseInt(process.env.REAP_INTERVAL_MS || '3600000', 10);
 
 const pool = new Pool({
   host: process.env.PGHOST || 'postgres',
@@ -27,22 +45,37 @@ const pool = new Pool({
   user: process.env.PGUSER || 'casemgmt',
   password: process.env.PGPASSWORD || 'casemgmt',
   database: process.env.PGDATABASE || 'casemgmt',
-  max: 2
+  // 3 rather than 2: config polling, the ageing lookup and the retention sweep
+  // can overlap. Still deliberately tiny next to case-service's pool.
+  max: 3
 });
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const rnd = (n) => Math.floor(Math.random() * n);
 const pick = (arr) => arr[rnd(arr.length)];
 
-let cfg = { running: true, rps: 6 };
+let cfg = { running: true, rps: 3 };
 let inFlight = 0;
-const stats = { total: 0, ok: 0, failed: 0, byFlow: {} };
+const stats = { total: 0, ok: 0, failed: 0, byFlow: {}, aged: 0, reaped: 0 };
+
+// Working list of cases that have sat in New past STATUS_AGE_HOURS. Topped up
+// from Postgres and consumed one id at a time so we work through the backlog
+// rather than re-touching the same few rows.
+let agingIds = [];
 
 const FIRST = ['James', 'Maria', 'Robert', 'Linda', 'Wei', 'Aisha', 'Carlos', 'Fatima', 'John', 'Karen'];
 const LAST = ['Smith', 'Johnson', 'Garcia', 'Nguyen', 'Patel', 'Kim', 'Okafor', 'Brown', 'Davis', 'Lopez'];
 const TYPES = ['Benefits Claim', 'FOIA Request', 'Permit Application', 'Appeal'];
 const PRIORITIES = ['Low', 'Medium', 'High', 'Urgent'];
-const STATUSES = ['In Review', 'Pending Info', 'Approved', 'Denied', 'Closed'];
+// Where an aged New case goes next. Weighted towards the active pipeline so the
+// table keeps a realistic spread instead of everything jumping straight to a
+// terminal state, but terminal outcomes still occur so closed_at populates and
+// the avg-days-to-close figure on the dashboard stays meaningful.
+const STATUSES = [
+  'In Review', 'In Review', 'In Review',
+  'Pending Info', 'Pending Info',
+  'Approved', 'Denied', 'Closed'
+];
 
 // Weighted flow table — browse/open dominate, writes are occasional, exactly
 // like a real case-worker population.
@@ -114,7 +147,17 @@ function createCase() {
 }
 
 function changeStatus() {
-  return req('PATCH', `/api/cases/${1 + rnd(SEEDED_CASES)}/status`, { status: pick(STATUSES) });
+  // Work through the backlog of aged New cases. Falls back to the seeded range
+  // when the backlog is empty, so the flow still generates traffic on a fresh
+  // database where nothing has aged past the threshold yet.
+  let id;
+  if (agingIds.length) {
+    id = agingIds.shift();
+    stats.aged++;
+  } else {
+    id = 1 + rnd(SEEDED_CASES);
+  }
+  return req('PATCH', `/api/cases/${id}/status`, { status: pick(STATUSES) });
 }
 
 function addNote() {
@@ -159,6 +202,67 @@ async function refreshConfig() {
   }
 }
 
+// --- Case ageing -----------------------------------------------------------
+// Tops up the working list of cases that have sat in New past the threshold.
+// Only refills when the list runs low, so this is not issued every cycle. The
+// ORDER BY matches idx_cases_created, so it walks the index and stops at LIMIT
+// instead of scanning the New backlog.
+async function refreshAgingIds() {
+  if (agingIds.length > 50) return;
+  try {
+    const { rows } = await pool.query(
+      `SELECT id
+         FROM cases
+        WHERE status = 'New'
+          AND created_at < now() - make_interval(hours => $1)
+        ORDER BY created_at ASC
+        LIMIT 500`,
+      [STATUS_AGE_HOURS]
+    );
+    agingIds = rows.map((r) => r.id);
+  } catch (_e) {
+    // Keep the last known list if the DB hiccups.
+  }
+}
+
+// --- Retention sweep -------------------------------------------------------
+// Deletes in bounded batches so a large first pass cannot hold a long lock or
+// stall the request path. case_notes rows go with them via ON DELETE CASCADE.
+// The seeded range is excluded on purpose: openCase and the changeStatus
+// fallback address those ids directly and would 404 continuously without them.
+async function reapOldCases() {
+  let removed = 0;
+  try {
+    for (;;) {
+      const { rowCount } = await pool.query(
+        `DELETE FROM cases
+          WHERE id IN (
+            SELECT id
+              FROM cases
+             WHERE created_at < now() - make_interval(days => $1)
+               AND id > $2
+             ORDER BY created_at ASC
+             LIMIT $3
+          )`,
+        [RETENTION_DAYS, SEEDED_CASES, REAP_BATCH]
+      );
+      removed += rowCount;
+      if (rowCount < REAP_BATCH || removed >= REAP_MAX_PER_RUN) break;
+      // Yield between batches so the sweep never monopolises its connection.
+      await sleep(250);
+    }
+    if (removed) {
+      stats.reaped += removed;
+      console.log(
+        `[loadgen] retention: removed ${removed} case(s) older than ${RETENTION_DAYS}d` +
+          (removed >= REAP_MAX_PER_RUN ? ' (per-run cap hit, continues next sweep)' : '')
+      );
+    }
+  } catch (err) {
+    console.warn(`[loadgen] retention sweep failed: ${err.message}`);
+  }
+}
+
 function reportLoop() {
   setInterval(() => {
     const flows = Object.entries(stats.byFlow)
@@ -166,7 +270,8 @@ function reportLoop() {
       .join(' ');
     console.log(
       `[loadgen] running=${cfg.running} rps=${cfg.rps} inFlight=${inFlight} ` +
-        `total=${stats.total} ok=${stats.ok} failed=${stats.failed} | ${flows}`
+        `total=${stats.total} ok=${stats.ok} failed=${stats.failed} ` +
+        `aged=${stats.aged} reaped=${stats.reaped} backlog=${agingIds.length} | ${flows}`
     );
   }, 15000);
 }
@@ -193,9 +298,22 @@ async function main() {
   await refreshConfig();
   await waitForGateway();
   setInterval(refreshConfig, 2000);
+
+  // Ageing backlog: prime it, then top up on a slow interval.
+  await refreshAgingIds();
+  setInterval(refreshAgingIds, 30000);
+
+  // Retention: first sweep a minute after start, so an already-large database
+  // gets trimmed without waiting a full interval, then on the normal cadence.
+  setTimeout(reapOldCases, 60000);
+  setInterval(reapOldCases, REAP_INTERVAL_MS);
+
   reportLoop();
   tick();
-  console.log(`[loadgen] started against ${GATEWAY_URL}`);
+  console.log(
+    `[loadgen] started against ${GATEWAY_URL} ` +
+      `(ageing New cases after ${STATUS_AGE_HOURS}h, retention ${RETENTION_DAYS}d)`
+  );
 }
 
 main();

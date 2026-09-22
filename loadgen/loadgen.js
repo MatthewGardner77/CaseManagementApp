@@ -79,13 +79,17 @@ const STATUSES = [
 
 // Weighted flow table — browse/open dominate, writes are occasional, exactly
 // like a real case-worker population.
+// changeStatus must out-weigh createCase or the New backlog grows without
+// bound: at 3 rps, each point of weight is ~2,600 cases/day. With createCase at
+// 7 and changeStatus at 13, ageing clears ~33.7k/day against ~18.1k/day created,
+// so the backlog drains instead of accumulating.
 const FLOWS = [
-  { name: 'browseQueue', weight: 30, run: browseQueue },
-  { name: 'openCase', weight: 28, run: openCase },
+  { name: 'browseQueue', weight: 25, run: browseQueue },
+  { name: 'openCase', weight: 26, run: openCase },
   { name: 'dashboard', weight: 14, run: dashboard },
   { name: 'search', weight: 10, run: search },
   { name: 'createCase', weight: 7, run: createCase },
-  { name: 'changeStatus', weight: 6, run: changeStatus },
+  { name: 'changeStatus', weight: 13, run: changeStatus },
   { name: 'addNote', weight: 5, run: addNote }
 ];
 const TOTAL_WEIGHT = FLOWS.reduce((s, f) => s + f.weight, 0);
